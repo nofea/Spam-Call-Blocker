@@ -1,0 +1,14 @@
+# yaml-language-server: $schema=https://devenv.sh/devenv.schema.json
+inputs:
+  nixpkgs:
+    url: github:cachix/devenv-nixpkgs/rolling
+  # Daily-regenerated Android SDK packages (newer than nixpkgs' androidenv).
+  # Its presence makes devenv's android module source the SDK from here.
+  android-nixpkgs:
+    url: github:tadfisher/android-nixpkgs/stable
+    inputs:
+      nixpkgs:
+        follows: nixpkgs
+
+# The Android SDK is unfree.
+allow_unfree: true
