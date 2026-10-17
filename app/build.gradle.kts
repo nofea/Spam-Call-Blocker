@@ -23,8 +23,23 @@ android {
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
     }
 
+    // The keystore and passwords come from Gradle properties kept outside the
+    // repo (~/.gradle/gradle.properties). Without them, release builds are unsigned.
+    val keystorePath = providers.gradleProperty("spamblocker.keystore").orNull
+    signingConfigs {
+        if (keystorePath != null) {
+            create("release") {
+                storeFile = file(keystorePath)
+                storePassword = providers.gradleProperty("spamblocker.keystorePassword").get()
+                keyAlias = providers.gradleProperty("spamblocker.keyAlias").get()
+                keyPassword = providers.gradleProperty("spamblocker.keyPassword").get()
+            }
+        }
+    }
+
     buildTypes {
         release {
+            signingConfig = signingConfigs.findByName("release")
             isMinifyEnabled = true
             isShrinkResources = true
             proguardFiles(getDefaultProguardFile("proguard-android-optimize.txt"), "proguard-rules.pro")
