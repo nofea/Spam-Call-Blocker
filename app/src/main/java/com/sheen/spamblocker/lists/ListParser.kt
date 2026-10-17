@@ -58,7 +58,26 @@ class ListParser(
         if (entries.size > maxEntries) {
             return ParseResult.Rejected("List has ${entries.size} entries; the limit is $maxEntries")
         }
+        prefixCoverageProblem(entries)?.let { return ParseResult.Rejected(it) }
         return ParseResult.Success(entries.toList(), failed, raw.size)
+    }
+
+    /**
+     * SPEC §8.2: a broken or compromised list must not be able to block whole
+     * number ranges, e.g. with `+91*`. Returns the rejection reason, if any.
+     */
+    private fun prefixCoverageProblem(entries: Collection<ParsedEntry>): String? {
+        var total = 0L
+        for (e in entries) {
+            if (!e.isPrefix) continue
+            val coverage = WildcardCompiler.coverage(CompiledPattern.Prefix(e.value.removePrefix("+")))
+            if (coverage > WildcardCompiler.COVERAGE_WARNING_THRESHOLD) return "Prefix ${e.value}* covers too many numbers"
+            total += coverage
+            if (total > MAX_PREFIX_COVERAGE) {
+                return "Prefixes cover more than ${MAX_PREFIX_COVERAGE / 1_000_000} million numbers in total"
+            }
+        }
+        return null
     }
 
     private fun parseEntry(value: String): ParsedEntry? {
@@ -143,5 +162,8 @@ class ListParser(
         /** SPEC §8.2 hard limits. */
         const val MAX_ENTRIES = 500_000
         const val MAX_DOWNLOAD_BYTES = 10L * 1024 * 1024
+
+        /** SPEC §8.2: summed coverage of a list's prefix entries (each is capped at the rule warning threshold). */
+        const val MAX_PREFIX_COVERAGE = 100_000_000L
     }
 }

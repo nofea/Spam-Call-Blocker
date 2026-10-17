@@ -84,6 +84,23 @@ class ListParserTest {
     }
 
     @Test
+    fun `a prefix covering too many numbers rejects the whole list`() {
+        assertTrue(parser.parse("9876543210\n+91*\n", ListFormat.TXT) is ParseResult.Rejected)
+        assertTrue(parser.parse("9876543210\n+9198*\n", ListFormat.TXT) is ParseResult.Rejected)
+        assertTrue(parser.parse("""["+1*"]""", ListFormat.JSON) is ParseResult.Rejected)
+        // Exactly at the threshold (10M numbers) is still accepted.
+        assertTrue(parser.parse("9876543210\n+91140*\n", ListFormat.TXT) is ParseResult.Success)
+    }
+
+    @Test
+    fun `many broad prefixes together reject the whole list`() {
+        // Ten 10M-number prefixes reach the 100M total; an eleventh exceeds it.
+        val ten = (100..109).joinToString("\n") { "+91$it*" }
+        assertTrue(parser.parse(ten, ListFormat.TXT) is ParseResult.Success)
+        assertTrue(parser.parse("$ten\n+91200*", ListFormat.TXT) is ParseResult.Rejected)
+    }
+
+    @Test
     fun `duplicates are collapsed`() {
         assertEquals(listOf(n1), success(parser.parse("9876543210\n+919876543210", ListFormat.TXT)).entries)
     }
