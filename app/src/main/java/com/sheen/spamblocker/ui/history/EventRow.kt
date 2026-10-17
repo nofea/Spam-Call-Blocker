@@ -10,10 +10,12 @@ import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import com.sheen.spamblocker.data.CallEvent
+import com.sheen.spamblocker.data.NumberStatus
 import com.sheen.spamblocker.rules.Action
 import com.sheen.spamblocker.ui.common.ActionRow
 import com.sheen.spamblocker.ui.common.BlockDialog
 import com.sheen.spamblocker.ui.common.DecisionBadge
+import com.sheen.spamblocker.ui.common.label
 import com.sheen.spamblocker.ui.common.relativeTime
 
 /** One screened call: number, decision, why, and when (SPEC §11 History). */
@@ -21,6 +23,7 @@ import com.sheen.spamblocker.ui.common.relativeTime
 fun EventRow(
     event: CallEvent,
     sourceName: String?,
+    status: NumberStatus? = null,
     onBlock: ((String, Action) -> Unit)? = null,
     onNotSpam: ((String) -> Unit)? = null,
 ) {
@@ -35,7 +38,7 @@ fun EventRow(
                     sourceName?.let { append(" · ").append(it) }
                     if (event.unparsed) append(" · unparsed")
                 }
-                Text("$why\n${relativeTime(event.timestamp)}")
+                Text(listOfNotNull(why, relativeTime(event.timestamp), status?.label).joinToString("\n"))
             },
             trailingContent = { DecisionBadge(event.decision) },
         )
@@ -47,6 +50,6 @@ fun EventRow(
         }
     }
     if (blocking && number != null && onBlock != null) {
-        BlockDialog(number, onBlock = { onBlock(number, it); blocking = false }, onDismiss = { blocking = false })
+        BlockDialog(number, (status as? NumberStatus.Blocked)?.action ?: Action.REJECT, onBlock = { onBlock(number, it); blocking = false }, onDismiss = { blocking = false })
     }
 }

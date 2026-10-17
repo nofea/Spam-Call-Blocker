@@ -33,12 +33,14 @@ import com.sheen.spamblocker.calllog.CallLogItem
 import com.sheen.spamblocker.calllog.CallLogReader
 import com.sheen.spamblocker.data.CallEvent
 import com.sheen.spamblocker.data.CallEventDao
+import com.sheen.spamblocker.data.NumberStatus
 import com.sheen.spamblocker.data.RulesRepository
 import com.sheen.spamblocker.rules.Action
 import com.sheen.spamblocker.ui.common.ActionRow
 import com.sheen.spamblocker.ui.common.BlockDialog
 import com.sheen.spamblocker.ui.common.DecisionBadge
 import com.sheen.spamblocker.ui.common.EmptyState
+import com.sheen.spamblocker.ui.common.label
 import com.sheen.spamblocker.ui.common.relativeTime
 import com.sheen.spamblocker.ui.common.rememberAccessState
 import dagger.hilt.android.lifecycle.HiltViewModel
@@ -52,7 +54,7 @@ import java.util.concurrent.TimeUnit
 import javax.inject.Inject
 import kotlin.math.abs
 
-data class CallLogRow(val call: CallLogItem, val event: CallEvent?)
+data class CallLogRow(val call: CallLogItem, val event: CallEvent?, val status: NumberStatus?)
 
 @HiltViewModel
 class CallLogViewModel @Inject constructor(
@@ -66,12 +68,13 @@ class CallLogViewModel @Inject constructor(
     val rows: StateFlow<List<CallLogRow>?> = combine(
         calls,
         callEvents.observeSince(System.currentTimeMillis() - TimeUnit.DAYS.toMillis(90)),
-    ) { calls, events ->
+        rules.observeNumberStatus,
+    ) { calls, events, status ->
         val byNumber = events.filter { it.number != null }.groupBy { it.number }
         calls?.map { call ->
             val event = byNumber[call.e164]?.minByOrNull { abs(it.timestamp - call.dateMillis) }
                 ?.takeIf { abs(it.timestamp - call.dateMillis) <= MATCH_WINDOW_MILLIS }
-            CallLogRow(call, event)
+            CallLogRow(call, event, call.e164?.let(status::get))
         }
     }.stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), null)
 
@@ -128,7 +131,7 @@ private fun CallRow(row: CallLogRow, onBlock: (String, Action) -> Unit, onNotSpa
                     row.event?.stage?.label,
                     relativeTime(row.call.dateMillis),
                 )
-                Text(detail.joinToString(" · "))
+                Text(listOfNotNull(detail.joinToString(" · "), row.status?.label).joinToString("\n"))
             },
             trailingContent = { row.event?.let { Row { DecisionBadge(it.decision) } } },
         )
@@ -140,6 +143,6 @@ private fun CallRow(row: CallLogRow, onBlock: (String, Action) -> Unit, onNotSpa
         }
     }
     if (blocking && number != null) {
-        BlockDialog(number, onBlock = { onBlock(number, it); blocking = false }, onDismiss = { blocking = false })
+        BlockDialog(number, (row.status as? NumberStatus.Blocked)?.action ?: Action.REJECT, onBlock = { onBlock(number, it); blocking = false }, onDismiss = { blocking = false })
     }
 }

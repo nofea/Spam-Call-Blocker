@@ -22,6 +22,9 @@ class DecisionEngineTest {
     private val repeatCaller = "+919000000005"
     private val userBlocked = "+919000000006"
     private val remoteListed = "+919000000007"
+    private val blockedButCalled = "+919000000008"
+    private val blockedRepeatCaller = "+919000000009"
+    private val blockedContact = "+919000000010"
     private val unknown = "+919000000099"
 
     private val index = RuleIndex.build(
@@ -34,6 +37,13 @@ class DecisionEngineTest {
             entry(allowlisted, Stage.USER_BLOCK, Action.REJECT, ruleId = 4),
             entry(calledYesterday, Stage.REMOTE_LIST, Action.SILENCE, sourceId = 10),
             entry(contact, Stage.REMOTE_LIST, Action.SILENCE, sourceId = 10),
+            // On the user block list, to check it beats the safety-net allows.
+            entry(blockedButCalled, Stage.USER_BLOCK, Action.REJECT, ruleId = 5),
+            entry(blockedRepeatCaller, Stage.USER_BLOCK, Action.SILENCE, ruleId = 6),
+            entry("+911600123457", Stage.USER_BLOCK, Action.REJECT, ruleId = 7),
+            entry(blockedContact, Stage.USER_BLOCK, Action.REJECT, ruleId = 8),
+            // A remote list and a user block both match: the user block's action wins.
+            entry(blockedButCalled, Stage.REMOTE_LIST, Action.SILENCE, sourceId = 10),
         ),
         allowEntries = listOf(entry(allowlisted, Stage.ALLOWLIST, null, ruleId = 20)),
     )
@@ -42,13 +52,13 @@ class DecisionEngineTest {
         IndexEntry(compiler.compile(pattern), RuleMatch(stage, action, ruleId, sourceId))
 
     private val engine = DecisionEngine(
-        contacts = { it == contact },
+        contacts = { it == contact || it == blockedContact },
         recentOutgoing = { number, since ->
-            (number == calledYesterday && now - DAY <= now && since <= now - DAY) ||
+            (number in listOf(calledYesterday, blockedButCalled) && since <= now - DAY) ||
                 (number == calledLastMonth && since <= now - 30 * DAY)
         },
         recentEvents = { number, since ->
-            listOf("+911400000000", repeatCaller).contains(number) && since <= now - 2 * MINUTE
+            listOf("+911400000000", repeatCaller, blockedRepeatCaller).contains(number) && since <= now - 2 * MINUTE
         },
     )
 
@@ -66,30 +76,42 @@ class DecisionEngineTest {
     private val cases = listOf(
         Case("1 contact, even when listed", contact, ScreeningDecision.allow(Stage.CONTACT)),
         Case("2 allowlist beats block list", allowlisted, ScreeningDecision(Decision.ALLOW, Stage.ALLOWLIST, ruleId = 20)),
-        Case("3 TRAI 160", "1600123456", ScreeningDecision.allow(Stage.TRAI_160)),
+        Case("1 contact beats user block", blockedContact, ScreeningDecision.allow(Stage.CONTACT)),
+        Case("3 user block", userBlocked, ScreeningDecision(Decision.REJECT, Stage.USER_BLOCK, ruleId = 1)),
         Case(
-            "3 TRAI 160 off falls through",
+            "3 user block beats recent outgoing and remote list",
+            blockedButCalled,
+            ScreeningDecision(Decision.REJECT, Stage.USER_BLOCK, ruleId = 5),
+        ),
+        Case(
+            "3 user block beats repeat caller",
+            blockedRepeatCaller,
+            ScreeningDecision(Decision.SILENCE, Stage.USER_BLOCK, ruleId = 6),
+        ),
+        Case("3 user block beats TRAI 160", "1600123457", ScreeningDecision(Decision.REJECT, Stage.USER_BLOCK, ruleId = 7)),
+        Case("4 TRAI 160", "1600123456", ScreeningDecision.allow(Stage.TRAI_160)),
+        Case(
+            "4 TRAI 160 off falls through",
             "1600123456",
             ScreeningDecision.allow(Stage.DEFAULT),
             settings = ScreeningSettings(trai160Allow = false),
         ),
-        Case("4 called recently beats remote list", calledYesterday, ScreeningDecision.allow(Stage.RECENT_OUTGOING)),
-        Case("4 called outside window", calledLastMonth, ScreeningDecision.allow(Stage.DEFAULT)),
+        Case("5 called recently beats remote list", calledYesterday, ScreeningDecision.allow(Stage.RECENT_OUTGOING)),
+        Case("5 called outside window", calledLastMonth, ScreeningDecision.allow(Stage.DEFAULT)),
         Case(
-            "4 recent outgoing off",
+            "5 recent outgoing off",
             calledYesterday,
             ScreeningDecision(Decision.SILENCE, Stage.REMOTE_LIST, sourceId = 10),
             settings = ScreeningSettings(recentOutgoingDays = 0),
         ),
-        Case("5 repeat caller", repeatCaller, ScreeningDecision.allow(Stage.REPEAT_CALLER)),
-        Case("5 repeat caller in 140-series is allowed", "1400000000", ScreeningDecision.allow(Stage.REPEAT_CALLER)),
+        Case("6 repeat caller", repeatCaller, ScreeningDecision.allow(Stage.REPEAT_CALLER)),
+        Case("6 repeat caller in 140-series is allowed", "1400000000", ScreeningDecision.allow(Stage.REPEAT_CALLER)),
         Case(
-            "5 repeat caller off",
+            "6 repeat caller off",
             repeatCaller,
             ScreeningDecision.allow(Stage.DEFAULT),
             settings = ScreeningSettings(repeatCallerMinutes = 0),
         ),
-        Case("6 user block", userBlocked, ScreeningDecision(Decision.REJECT, Stage.USER_BLOCK, ruleId = 1)),
         Case("7 pattern", "8888812345", ScreeningDecision(Decision.WARN, Stage.PATTERN, ruleId = 2)),
         Case("8 derived prefix", "7777777712", ScreeningDecision(Decision.SILENCE, Stage.DERIVED_PREFIX, ruleId = 3)),
         Case("9 remote list", remoteListed, ScreeningDecision(Decision.SILENCE, Stage.REMOTE_LIST, sourceId = 10)),

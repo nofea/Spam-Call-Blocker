@@ -9,10 +9,10 @@ import com.sheen.spamblocker.rules.Action
 enum class Stage(val label: String) {
     CONTACT("Saved contact"),
     ALLOWLIST("Allowlist"),
+    USER_BLOCK("Block list"),
     TRAI_160("TRAI 160-series"),
     RECENT_OUTGOING("Recently called"),
     REPEAT_CALLER("Repeat caller"),
-    USER_BLOCK("Block list"),
     PATTERN("Pattern rule"),
     DERIVED_PREFIX("Derived prefix"),
     REMOTE_LIST("Remote list"),
