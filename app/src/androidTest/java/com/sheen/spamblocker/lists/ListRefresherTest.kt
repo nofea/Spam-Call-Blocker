@@ -80,6 +80,22 @@ class ListRefresherTest {
     }
 
     @Test
+    fun nonAsciiValidatorsAreNotStoredOrSentBack() = runTest {
+        server.enqueue(
+            MockResponse.Builder().code(200).body("9876543210\n").addHeaderLenient("ETag", "\"vé\"").build(),
+        )
+        assertEquals(RefreshOutcome.UPDATED, refresher.refresh(sourceId))
+        assertNull(source().etag)
+        server.takeRequest()
+
+        // Validators stored before this check existed are skipped rather than crashing the request.
+        db.listSources().update(source().copy(etag = "\"vé\""))
+        server.enqueue(MockResponse.Builder().code(200).body("9876543210\n").build())
+        assertEquals(RefreshOutcome.UPDATED, refresher.refresh(sourceId))
+        assertNull(server.takeRequest().headers["If-None-Match"])
+    }
+
+    @Test
     fun mostlyGarbageListIsRejected() = runTest {
         server.enqueue(MockResponse.Builder().code(200).body("9876543210\n").build())
         refresher.refresh(sourceId)

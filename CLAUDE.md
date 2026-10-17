@@ -17,7 +17,9 @@ The toolchain (JDK 21, Android SDK/build-tools 37, emulator + API 37 image) is p
 devenv test                                  # unit tests inside the pinned env
 ```
 
-devenv doesn't provide `gradle`; always use `./gradlew` (Gradle 9.8.1, pinned with a distribution checksum). Release builds are minified with R8 and unsigned.
+devenv doesn't provide `gradle`; always use `./gradlew` (Gradle 9.8.1, pinned with a distribution checksum). Release builds are minified with R8. They're signed when the `spamblocker.keystore`, `spamblocker.keystorePassword`, `spamblocker.keyAlias` and `spamblocker.keyPassword` Gradle properties are set (in `~/.gradle/gradle.properties`, never in the repo), and unsigned otherwise.
+
+Dependencies are checked against SHA-256 hashes in `gradle/verification-metadata.xml`, and a mismatch fails the build. After changing any version in `gradle/libs.versions.toml`, regenerate the file with `./gradlew --refresh-dependencies --write-verification-metadata sha256 assembleDebug assembleRelease testDebugUnitTest assembleDebugAndroidTest`, then review the diff: entries should only be added. A changed hash for a version that didn't change means something was tampered with. Never hand-edit hashes to make a build pass.
 
 Emulator helpers (devenv scripts): `avd-create` (once), `avd-run` (needs KVM), `fake-call <number>` (wraps `adb emu gsm call`), then `adb install -r app/build/outputs/apk/debug/app-debug.apk`. Calls from saved contacts never reach a screening app, so test with numbers that aren't saved contacts.
 

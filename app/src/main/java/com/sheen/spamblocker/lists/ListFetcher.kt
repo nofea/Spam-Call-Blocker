@@ -28,8 +28,8 @@ class ListFetcher @Inject constructor(private val client: OkHttpClient) {
             val url = source.url.trim().toHttpUrlOrNull()
                 ?: return@withContext FetchResult.Failure("Not an http(s) URL", retryable = false)
             val request = Request.Builder().url(url).apply {
-                source.etag?.let { header("If-None-Match", it) }
-                source.lastModified?.let { header("If-Modified-Since", it) }
+                validator(source.etag)?.let { header("If-None-Match", it) }
+                validator(source.lastModified)?.let { header("If-Modified-Since", it) }
             }.build()
 
             try {
@@ -50,8 +50,8 @@ class ListFetcher @Inject constructor(private val client: OkHttpClient) {
                             }
                             FetchResult.Body(
                                 text = stream.buffer.readUtf8(),
-                                etag = response.header("ETag"),
-                                lastModified = response.header("Last-Modified"),
+                                etag = validator(response.header("ETag")),
+                                lastModified = validator(response.header("Last-Modified")),
                             )
                         }
                     }
@@ -60,6 +60,13 @@ class ListFetcher @Inject constructor(private val client: OkHttpClient) {
                 FetchResult.Failure(e.message ?: e.javaClass.simpleName, retryable = true)
             }
         }
+
+    /**
+     * OkHttp reads response headers leniently but throws on request headers
+     * outside printable ASCII, so such a validator must never be stored or
+     * sent back.
+     */
+    private fun validator(value: String?): String? = value?.takeIf { v -> v.all { it == '\t' || it in ' '..'~' } }
 
     private fun tooLarge(maxBytes: Long): String {
         val mb = 1024 * 1024

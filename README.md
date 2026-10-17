@@ -92,12 +92,30 @@ Every switch, time window and default action can be changed in Settings.
 ## Install on your phone (sideload)
 
 There are no prebuilt releases yet, so you build the APK yourself (see
-[Development environment](#development-environment)):
+[Development environment](#development-environment)). Install a **signed release
+build** on the phone you actually use. A debug build lets anyone with adb access read
+the app's database, which holds your call history.
 
-```sh
-devenv shell
-./gradlew assembleDebug    # → app/build/outputs/apk/debug/app-debug.apk
-```
+1. Create a signing key once, and keep it outside this repo with a backup:
+   ```sh
+   keytool -genkeypair -v -keystore ~/keys/spamblocker.jks -alias spamblocker \
+     -keyalg RSA -keysize 4096 -validity 10000
+   ```
+2. Tell Gradle where it is in `~/.gradle/gradle.properties` (never in the project's
+   `gradle.properties`). Use an absolute path:
+   ```properties
+   spamblocker.keystore=/home/<you>/keys/spamblocker.jks
+   spamblocker.keystorePassword=<store password>
+   spamblocker.keyAlias=spamblocker
+   spamblocker.keyPassword=<key password>
+   ```
+3. Build it:
+   ```sh
+   devenv shell
+   ./gradlew assembleRelease    # → app/build/outputs/apk/release/app-release.apk
+   ```
+   Without these properties the build still succeeds, but it produces
+   `app-release-unsigned.apk`, which Android won't install.
 
 Then pick one of the following ways to get it onto the phone.
 
@@ -110,7 +128,7 @@ Then pick one of the following ways to get it onto the phone.
 4. Inside `devenv shell`:
    ```sh
    adb devices                # the phone should be listed as "device"
-   adb install -r app/build/outputs/apk/debug/app-debug.apk
+   adb install -r app/build/outputs/apk/release/app-release.apk
    ```
 
 If the phone doesn't show up in `lsusb` at all, try another port (preferably a rear
@@ -128,13 +146,13 @@ The phone and computer must be on the same network.
    ```
    If the phone is listed twice, add `-s <ip>:<port>` to adb commands, or
    `export ANDROID_SERIAL=<ip>:<port>`.
-3. `adb install -r app/build/outputs/apk/debug/app-debug.apk`
+3. `adb install -r app/build/outputs/apk/release/app-release.apk`
 
 Wireless debugging turns off after a restart or a network change. Turn it back on and run
 `adb connect` again. You don't need to pair again.
 
 ### Option C: copy the APK
-1. Send `app-debug.apk` to the phone (cloud drive, messaging app, email to yourself).
+1. Send `app-release.apk` to the phone (cloud drive, messaging app, email to yourself).
 2. Open it and allow your file manager or browser to **install unknown apps**.
 3. Android 13+ blocks call-log and contacts access for apps installed this way.
    If onboarding can't grant those permissions, open **Settings → Apps → Spam
@@ -151,9 +169,10 @@ To check it works, have someone whose number isn't in your contacts call you, th
 look at **History**.
 
 **Updating:** install a new build over the old one with `adb install -r` to keep your
-rules and history. The debug build is signed with a key stored in `.android/` in this
-project folder. If that key is lost, a new build won't install over the old one, and
-you would have to uninstall, which erases your data. Keep a copy of that folder.
+rules and history. Android only accepts an update signed with the same key, so nobody
+else can replace your copy. That also means that losing the key, or switching between a
+debug and a release build, forces an uninstall, which erases your data. Keep a backup
+of the keystore and its passwords.
 
 ## Development environment
 

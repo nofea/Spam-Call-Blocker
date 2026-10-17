@@ -185,11 +185,13 @@ The user adds subscriptions by entering a name, URL, format, and action. The app
 - Lines that fail to parse are counted and skipped. A list where **more than 50%** of lines fail to parse is rejected as a whole, and the previous copy is kept. An empty list is also rejected, so a broken URL can't silently wipe a source.
 - Duplicate entries are collapsed.
 - Hard limits: 10 MB per download and 500k entries per source. A list over either limit is rejected as a whole, not truncated.
+- Prefix limits, so that a broken or compromised list can't block whole number ranges: a list is rejected as a whole if any prefix entry covers more numbers than the §6.1 warning threshold (10 million, e.g. `+9198*` or `+91*`), or if its prefix entries together cover more than 100 million numbers. Coverage is computed as in §6.1.
 
 ### 8.3 Refresh
 
 - WorkManager runs a `PeriodicWorkRequest`, every **24 h** by default (options: 6 h, 12 h, 24 h, 7 d, or manual). By default it requires an unmetered network, and that can be switched off.
-- Requests use conditional GET with `If-None-Match` / `If-Modified-Since`. A `304` response only updates `lastFetchedAt`.
+- Requests use conditional GET with `If-None-Match` / `If-Modified-Since`. A `304` response only updates `lastFetchedAt`. Validators that aren't printable ASCII are neither stored nor sent.
+- A failure refreshing one source never stops the other sources from refreshing.
 - New entries replace a source's old ones in a single Room transaction (delete, then insert), then `RuleIndex` is rebuilt.
 - On failure, the app keeps the last good copy and stores the error in `lastError`, which appears on the Sources screen. Retries back off exponentially.
 - Each source also has a **Refresh now** button.
