@@ -38,6 +38,10 @@
             </intent-filter>
         </service>
 
+        <receiver
+            android:name=".notify.NotificationActionReceiver"
+            android:exported="false" />
+
         <!-- WorkManager is initialised on demand with HiltWorkerFactory (see SpamBlockerApp). -->
         <provider
             android:name="androidx.startup.InitializationProvider"

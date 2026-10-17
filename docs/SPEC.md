@@ -75,7 +75,7 @@ Privacy constraints:
 - No network requests except fetching the user's configured list URLs.
 - Call data, contacts, and rules never leave the device.
 
-Any permission the user denies degrades its feature gracefully. For example, without `READ_CALL_LOG` the recent-outgoing and repeat-caller rules are turned off and the UI says so.
+Any permission the user denies degrades its feature gracefully. For example, without `READ_CALL_LOG` the recent-outgoing rule is turned off and the UI says so. The repeat-caller rule keeps working, because it uses the app's own history (§5).
 
 ## 4. Number normalization
 
@@ -114,6 +114,8 @@ Notes:
 
 - **Repeat caller** uses the app's own `CallEvent` history, not the call log, so it stays fast. It also counts calls the app rejected or silenced earlier.
 - **Hidden callers** skip stages 1–10, since there's no number to match, and go straight to stage 11.
+- When several block rules match one number, the earliest stage wins. Within a stage, the more specific pattern (more literal digits) wins, so an exact number beats a prefix.
+- The contact, recent-outgoing, and repeat-caller lookups start concurrently, so the slowest of them, not their sum, bounds the decision time.
 - Every decision is written to `CallEvent` with the stage and rule ID that matched. Allows that came from a safety net are logged too, so the user can see why a call got through.
 - `DecisionEngine` is pure Kotlin. It receives a `CallContext` (normalized number, presentation, timestamp) and a set of lookups (contacts, recent-outgoing, recent-events, `RuleIndex`). Those lookups are interfaces, so tests can fake them.
 
@@ -121,7 +123,7 @@ Notes:
 
 ### 6.1 Manual wildcard rules
 
-Rules are written in E.164 form. The UI accepts national format and normalizes it.
+Rules are written in E.164 form. The UI accepts national format and normalizes it: an exact number goes through §4, and a pattern without a leading `+` loses one leading `0` and gets `+91` prepended (`98765*` → `+9198765*`). Spaces and dashes are ignored. Suffix patterns are kept as typed.
 
 | Syntax | Meaning | Example |
 |---|---|---|
@@ -157,13 +159,13 @@ A suggestion **never takes effect without the user's approval**. Dismissed prefi
 
 ## 7. Learning from the call log
 
-- **First-run import.** After onboarding, the app reads every `CallLog.Calls.TYPE == BLOCKED_TYPE` entry. It shows them as a checklist with everything checked by default, and adds the confirmed numbers to the user block list (origin `IMPORT`).
+- **First-run import.** After onboarding, the app reads every `CallLog.Calls.TYPE == BLOCKED_TYPE` entry. It shows them as a checklist with everything checked by default, and adds the confirmed numbers to the user block list (origin `IMPORT`). Calls the app itself rejected are also logged as blocked; those are left out, so re-running the import doesn't copy list or TRAI matches into the user block list.
 - **Call log screen.** Lists recent incoming, missed, rejected, and blocked calls, each with a badge for the app's decision (if any). Actions per number:
   - **Block**: opens an action chooser and adds the number to the exact block list.
   - **Not spam**: adds the number to the allowlist and removes any exact block for it.
 - **Post-call prompt (optional, default on).** After a call ends from an unknown number that the app allowed, the app posts a notification: "Block <number>?" with **Block** and **Not spam** actions. Turning this off in Settings stops the prompts.
   - **Detection:** a `ContentObserver` on `CallLog.Calls.CONTENT_URI`. It runs only while the app's process is alive. As a fallback, a WorkManager job checks the log every 15 min and doesn't prompt for calls older than 1 h.
-- **History reconciliation.** Every "Not spam" action on a number that was blocked by a remote list or a derived prefix is recorded, so the user can see which sources produce false positives. The Sources screen shows each source's false-positive count.
+- **History reconciliation.** Every "Not spam" action on a number that was blocked by a remote list or a derived prefix is recorded as a `FalsePositive`, so the user can see which sources produce false positives. The Sources screen shows each source's false-positive count.
 
 ## 8. Remote spam lists
 
@@ -176,12 +178,13 @@ The user adds subscriptions by entering a name, URL, format, and action. The app
 | Format | Rules |
 |---|---|
 | TXT | One entry per line. Blank lines and `#` comments are ignored. |
-| CSV | Header row optional. The user picks the number column by name or index (default: the first column). |
+| CSV | Header row optional. The user picks the number column by header name or 1-based column number (default: the first column). With no name given, a first row whose number cell has no digits is treated as a header. |
 | JSON | Either `["+9198…", …]` or `[{"number": "+9198…", …}, …]` |
 
 - An entry ending in `*` is a **prefix** entry. Every other entry is an exact number, normalized with §4.
-- Lines that fail to parse are counted and skipped. A list where **more than 50%** of lines fail to parse is rejected as a whole, and the previous copy is kept.
-- Hard limits: 10 MB per download and 500k entries per source.
+- Lines that fail to parse are counted and skipped. A list where **more than 50%** of lines fail to parse is rejected as a whole, and the previous copy is kept. An empty list is also rejected, so a broken URL can't silently wipe a source.
+- Duplicate entries are collapsed.
+- Hard limits: 10 MB per download and 500k entries per source. A list over either limit is rejected as a whole, not truncated.
 
 ### 8.3 Refresh
 
@@ -238,7 +241,7 @@ enum class RuleOrigin { USER, IMPORT, MANUAL_PATTERN, DERIVED }
 data class ListEntry(
     @PrimaryKey(autoGenerate = true) val id: Long = 0,
     val sourceId: Long,           // FK → ListSource, cascade delete
-    val value: String,            // E.164 or prefix digits
+    val value: String,            // E.164, or an E.164 prefix without `*`
     val isPrefix: Boolean,
 )
 
@@ -252,13 +255,24 @@ data class CallEvent(
     val ruleId: Long? = null,
     val sourceId: Long? = null,
     val decisionMicros: Long,     // timing, for the perf target
+    val unparsed: Boolean = false, // §4 fallback was used
 )
 
 @Entity data class DerivedSuggestion(
-    @PrimaryKey val prefix: String,
+    @PrimaryKey val prefix: String,   // E.164 without `*`, e.g. +9198765432
     val sampleNumbers: List<String>,  // TypeConverter
     val rangeSize: Long,
     val status: SuggestionStatus,     // PENDING, ACCEPTED, DISMISSED
+    val createdAt: Long,
+)
+
+// A "Not spam" on a number a remote list or derived prefix had blocked (§7).
+@Entity data class FalsePositive(
+    @PrimaryKey(autoGenerate = true) val id: Long = 0,
+    val number: String,
+    val stage: Stage,
+    val ruleId: Long? = null,
+    val sourceId: Long? = null,
     val createdAt: Long,
 )
 ```
@@ -318,7 +332,7 @@ data class CallEvent(
 - **Libraries:** Hilt, Room, DataStore, WorkManager, OkHttp, kotlinx.serialization (JSON lists), libphonenumber, and Compose with Navigation.
 
 ```
-com.<you>.spamblocker
+com.sheen.spamblocker
 ├── screening/   SpamScreeningService, DecisionEngine, CallContext, Stage
 ├── rules/       RuleIndex, WildcardCompiler, PrefixDeriver, TraiSeries
 ├── phone/       PhoneNormalizer (libphonenumber wrapper)
@@ -327,7 +341,8 @@ com.<you>.spamblocker
 ├── calllog/     CallLogReader, BlockedImport, PostCallObserver
 ├── notify/      Notification channels and builders, action receivers
 ├── work/        MaintenanceWorker (history pruning, derivation)
-└── ui/          onboarding, home, history, calllog, rules, sources, settings
+├── di/          Hilt module (database, DataStore, OkHttp, app scope)
+└── ui/          onboarding, home, history, calllog, rules, sources, settings, common
 ```
 
 - `DecisionEngine`, `RuleIndex`, `WildcardCompiler`, `PrefixDeriver`, `PhoneNormalizer`, and the list parsers use no Android framework types, so they can be unit-tested on the JVM.

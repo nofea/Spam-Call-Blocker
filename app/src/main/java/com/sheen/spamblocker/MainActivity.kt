@@ -4,30 +4,31 @@ import android.os.Bundle
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.setContent
 import androidx.activity.enableEdgeToEdge
-import androidx.compose.foundation.layout.Box
-import androidx.compose.foundation.layout.fillMaxSize
-import androidx.compose.foundation.layout.padding
-import androidx.compose.material3.Scaffold
-import androidx.compose.material3.Text
-import androidx.compose.ui.Alignment
-import androidx.compose.ui.Modifier
-import androidx.compose.ui.res.stringResource
+import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.remember
+import androidx.compose.runtime.setValue
+import com.sheen.spamblocker.data.SettingsRepository
+import com.sheen.spamblocker.ui.AppNavigation
 import com.sheen.spamblocker.ui.theme.SpamBlockerTheme
 import dagger.hilt.android.AndroidEntryPoint
+import javax.inject.Inject
 
 @AndroidEntryPoint
 class MainActivity : ComponentActivity() {
+
+    @Inject lateinit var settings: SettingsRepository
+
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         enableEdgeToEdge()
         setContent {
             SpamBlockerTheme {
-                // Placeholder until the navigation graph and screens (SPEC §11) land.
-                Scaffold { padding ->
-                    Box(Modifier.fillMaxSize().padding(padding), contentAlignment = Alignment.Center) {
-                        Text(stringResource(R.string.app_name))
-                    }
-                }
+                // Onboarding runs until the first-run import has been offered (SPEC §11).
+                var showOnboarding by remember { mutableStateOf<Boolean?>(null) }
+                LaunchedEffect(Unit) { showOnboarding = !settings.current().importOffered }
+                showOnboarding?.let { AppNavigation(showOnboarding = it) }
             }
         }
     }
