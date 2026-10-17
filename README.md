@@ -21,19 +21,25 @@ uses one of three actions:
 | **Silence** | The call arrives without ringing and shows as missed. |
 | **Warn** | The call rings normally, with a "Possible spam" notification. |
 
-Rules are checked in order, and the first match wins. Allow rules always come
-before block rules, so a real caller is hard to lose:
+Rules are checked in order, and the first match wins. Your contacts and allowlist
+always win. A number you blocked yourself stays blocked. Everything else gets a few
+safety nets before any other block rule, so a real caller is hard to lose:
 
 **Always let through**
 - Saved contacts (Android never sends these to a spam app anyway).
 - Numbers and prefixes on your **allowlist**.
+
+**Your block list**
+- Numbers on your own **block list** (Reject by default), even if you called them back
+  or they call twice in a row. Use **Not spam** to undo it.
+
+**Let through unless you blocked the number**
 - **TRAI 160-series** numbers (banks, government and other registered service senders).
 - Numbers **you called** in the last 7 days.
 - **Repeat callers**: a second call from the same number within 5 minutes rings, in
   case it's someone urgent.
 
 **Blocked**
-- Your own **block list** (Reject by default).
 - Your **wildcard rules**, such as `98765*`, `*4321` or `+91987654321?`. The app shows how many
   numbers a rule covers and warns before saving a very broad one.
 - **Prefix suggestions** you've accepted (Silence by default).

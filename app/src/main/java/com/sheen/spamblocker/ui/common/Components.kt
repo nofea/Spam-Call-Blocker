@@ -25,6 +25,7 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
+import com.sheen.spamblocker.data.NumberStatus
 import com.sheen.spamblocker.rules.Action
 import com.sheen.spamblocker.screening.Decision
 
@@ -81,6 +82,13 @@ fun BlockDialog(number: String, initial: Action = Action.REJECT, onBlock: (Actio
         dismissButton = { TextButton(onClick = onDismiss) { Text("Cancel") } },
     )
 }
+
+/** The number's current rule, as opposed to the decision a past call got. */
+val NumberStatus.label: String
+    get() = when (this) {
+        is NumberStatus.Blocked -> "Now blocked: ${action.label}"
+        NumberStatus.Allowlisted -> "Now on allowlist"
+    }
 
 @Composable
 fun DecisionBadge(decision: Decision, modifier: Modifier = Modifier) {

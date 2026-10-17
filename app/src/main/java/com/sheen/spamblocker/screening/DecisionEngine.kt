@@ -3,6 +3,7 @@ package com.sheen.spamblocker.screening
 import com.sheen.spamblocker.phone.NormalizedNumber
 import com.sheen.spamblocker.rules.Action
 import com.sheen.spamblocker.rules.RuleIndex
+import com.sheen.spamblocker.rules.RuleMatch
 import com.sheen.spamblocker.rules.TraiSeries
 import kotlinx.coroutines.Deferred
 import kotlinx.coroutines.async
@@ -71,8 +72,9 @@ data class ScreeningDecision(
 }
 
 /**
- * The ordered pipeline from SPEC §5: the first matching stage wins, and allow
- * stages come before block stages. Pure Kotlin; the I/O lookups are started
+ * The ordered pipeline from SPEC §5: the first matching stage wins. Contacts
+ * and the allowlist come first, then the user's own exact blocks, then the
+ * safety-net allows, then the other block stages. Pure Kotlin; the I/O lookups are started
  * concurrently up front so the slowest one, not their sum, bounds the latency.
  */
 class DecisionEngine(
@@ -94,26 +96,26 @@ class DecisionEngine(
                 async { recentEvents.screenedSince(number, call.timestampMillis - minutes * MINUTE_MILLIS) }
             }
 
-            // 1–5: allow stages.
+            // 1–2: the user's allow rules.
             if (isContact.await()) return@coroutineScope allow(Stage.CONTACT)
             index.allowMatch(number)?.let {
                 return@coroutineScope ScreeningDecision(Decision.ALLOW, Stage.ALLOWLIST, ruleId = it.ruleId)
             }
+
+            // 3: the user's exact block list beats the safety nets below. USER_BLOCK
+            // is the earliest block stage, so the best match is one if any is.
+            val blockMatch = index.blockMatch(number)
+            if (blockMatch?.stage == Stage.USER_BLOCK) return@coroutineScope blockMatch.toDecision()
+
+            // 4–6: safety-net allows.
             if (settings.trai160Allow && indianNsn != null && TraiSeries.isTransactional(indianNsn)) {
                 return@coroutineScope allow(Stage.TRAI_160)
             }
             if (calledRecently?.await() == true) return@coroutineScope allow(Stage.RECENT_OUTGOING)
             if (repeatCaller?.await() == true) return@coroutineScope allow(Stage.REPEAT_CALLER)
 
-            // 6–9: user block list, patterns, derived prefixes, remote lists.
-            index.blockMatch(number)?.let { m ->
-                return@coroutineScope ScreeningDecision(
-                    decision = (m.action ?: Action.SILENCE).toDecision(),
-                    stage = m.stage,
-                    ruleId = m.ruleId,
-                    sourceId = m.sourceId,
-                )
-            }
+            // 7–9: patterns, derived prefixes, remote lists.
+            blockMatch?.let { return@coroutineScope it.toDecision() }
 
             // 10: TRAI 140-series.
             if (settings.trai140Enabled && indianNsn != null && TraiSeries.isPromotional(indianNsn)) {
@@ -138,6 +140,13 @@ class DecisionEngine(
         }
 
     private fun allow(stage: Stage) = ScreeningDecision.allow(stage)
+
+    private fun RuleMatch.toDecision() = ScreeningDecision(
+        decision = (action ?: Action.SILENCE).toDecision(),
+        stage = stage,
+        ruleId = ruleId,
+        sourceId = sourceId,
+    )
 
     private companion object {
         const val MINUTE_MILLIS = 60_000L

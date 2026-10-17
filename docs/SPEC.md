@@ -92,16 +92,16 @@ Any permission the user denies degrades its feature gracefully. For example, wit
 
 ## 5. Decision pipeline
 
-Evaluation runs in order, and the **first match wins**. Allow rules always come before block rules.
+Evaluation runs in order, and the **first match wins**. Contacts and the allowlist come first, then the user's own exact block list, then the safety-net allows, then every other block rule. A number the user explicitly blocked stays blocked even if they called it back or it calls twice in a row; to let it through, they mark it **Not spam** (§7) or save it as a contact.
 
 | # | Stage | Rule | Default |
 |---|---|---|---|
 | 1 | Allow | Saved contact | on |
 | 2 | Allow | Manual allowlist (exact or prefix) | on |
-| 3 | Allow | TRAI 160-series | on |
-| 4 | Allow | User called this number within the last **N days** | on, N = 7 |
-| 5 | Allow | **Repeat caller**: the same number already called within **M minutes** (this is the second or later call) | on, M = 5 |
-| 6 | Block | User exact block list | Reject |
+| 3 | Block | User exact block list (Block button and first-run import) | Reject |
+| 4 | Allow | TRAI 160-series | on |
+| 5 | Allow | User called this number within the last **N days** | on, N = 7 |
+| 6 | Allow | **Repeat caller**: the same number already called within **M minutes** (this is the second or later call) | on, M = 5 |
 | 7 | Block | Manual wildcard or prefix rules | per rule |
 | 8 | Block | Accepted derived prefixes | Silence |
 | 9 | Block | Remote list entries (enabled sources) | per source, default Silence |
@@ -160,7 +160,7 @@ A suggestion **never takes effect without the user's approval**. Dismissed prefi
 ## 7. Learning from the call log
 
 - **First-run import.** After onboarding, the app reads every `CallLog.Calls.TYPE == BLOCKED_TYPE` entry. It shows them as a checklist with everything checked by default, and adds the confirmed numbers to the user block list (origin `IMPORT`). Calls the app itself rejected are also logged as blocked; those are left out, so re-running the import doesn't copy list or TRAI matches into the user block list.
-- **Call log screen.** Lists recent incoming, missed, rejected, and blocked calls, each with a badge for the app's decision (if any). Actions per number:
+- **Call log screen.** Lists recent incoming, missed, rejected, and blocked calls, each with a badge for the app's decision (if any). The badge is the decision that call got and never changes, so each row also shows the number's current exact rule ("Now blocked: Reject", "Now on allowlist"); the History screen does the same. Actions per number:
   - **Block**: opens an action chooser and adds the number to the exact block list.
   - **Not spam**: adds the number to the allowlist and removes any exact block for it.
 - **Post-call prompt (optional, default on).** After a call ends from an unknown number that the app allowed, the app posts a notification: "Block <number>?" with **Block** and **Not spam** actions. Turning this off in Settings stops the prompts.
@@ -356,7 +356,7 @@ com.sheen.spamblocker
 - **PhoneNormalizer:** every input format in §4, hidden or empty handles, and international numbers.
 - **WildcardCompiler:** valid and invalid syntax, and coverage-size calculation.
 - **RuleIndex:** exact, prefix, `?`, and suffix matches; correct priority when several rules match.
-- **DecisionEngine:** a table-driven test with at least one case per pipeline stage, plus precedence cases (e.g. a number on both the allowlist and a block list is allowed; a repeat caller in the 140-series is allowed).
+- **DecisionEngine:** a table-driven test with at least one case per pipeline stage, plus precedence cases (e.g. a number on both the allowlist and a block list is allowed; a repeat caller in the 140-series is allowed; a number on the user block list is blocked even when it was called recently, calls repeatedly, or is in the 160-series).
 - **PrefixDeriver:** the K/L thresholds, longest-prefix preference, and exclusions (contacts, allowlist, outgoing calls, dismissed prefixes).
 - **Parsers:** TXT, CSV, and JSON happy paths; malformed lines; the 50%-rejection rule; size limits.
 

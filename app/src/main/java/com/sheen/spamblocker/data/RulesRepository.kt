@@ -7,8 +7,16 @@ import com.sheen.spamblocker.rules.InvalidPatternException
 import com.sheen.spamblocker.rules.WildcardCompiler
 import com.sheen.spamblocker.screening.Decision
 import com.sheen.spamblocker.screening.Stage
+import kotlinx.coroutines.flow.Flow
+import kotlinx.coroutines.flow.combine
 import javax.inject.Inject
 import javax.inject.Singleton
+
+/** A number's exact user rule, shown next to past calls (SPEC §7). */
+sealed interface NumberStatus {
+    data class Blocked(val action: Action) : NumberStatus
+    data object Allowlisted : NumberStatus
+}
 
 /** User-facing rule changes: Block, Not spam, patterns, allowlist, suggestions, import. */
 @Singleton
@@ -22,6 +30,20 @@ class RulesRepository @Inject constructor(
     val observeBlockRules = blockRules.observeAll()
     val observeAllowRules = allowRules.observeAll()
     val observePendingSuggestions = db.suggestions().observePending()
+
+    /**
+     * Exact allow and enabled exact block rules by number. Past calls keep the
+     * decision they got, so this is how the UI shows that a Block took effect.
+     * The allowlist wins, as in the pipeline (SPEC §5).
+     */
+    val observeNumberStatus: Flow<Map<String, NumberStatus>> =
+        combine(observeBlockRules, observeAllowRules) { blocks, allows ->
+            buildMap {
+                blocks.filter { it.type == RuleType.EXACT && it.enabled }
+                    .forEach { put(it.pattern, NumberStatus.Blocked(it.action)) }
+                allows.filter { it.type == RuleType.EXACT }.forEach { put(it.pattern, NumberStatus.Allowlisted) }
+            }
+        }
 
     /** "Block" (SPEC §7): exact block, replacing any exact allow for the number. */
     suspend fun blockNumber(e164: String, action: Action, origin: RuleOrigin = RuleOrigin.USER, note: String? = null) {

@@ -22,6 +22,7 @@ import androidx.lifecycle.viewModelScope
 import com.sheen.spamblocker.data.CallEvent
 import com.sheen.spamblocker.data.CallEventDao
 import com.sheen.spamblocker.data.ListSourceDao
+import com.sheen.spamblocker.data.NumberStatus
 import com.sheen.spamblocker.data.RulesRepository
 import com.sheen.spamblocker.rules.Action
 import com.sheen.spamblocker.screening.Decision
@@ -42,6 +43,7 @@ data class HistoryState(
     val filter: Decision? = null,
     val events: List<CallEvent> = emptyList(),
     val sourceNames: Map<Long, String> = emptyMap(),
+    val status: Map<String, NumberStatus> = emptyMap(),
 )
 
 @HiltViewModel
@@ -57,6 +59,7 @@ class HistoryViewModel @Inject constructor(
         filter,
         filter.flatMapLatest { callEvents.observeAll(it) },
         sources.observeAll().map { list -> list.associate { it.id to it.name } },
+        rules.observeNumberStatus,
         ::HistoryState,
     ).stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), HistoryState())
 
@@ -91,7 +94,13 @@ fun HistoryScreen(vm: HistoryViewModel = hiltViewModel()) {
         } else {
             LazyColumn {
                 items(state.events, key = { it.id }) { event ->
-                    EventRow(event, event.sourceId?.let(state.sourceNames::get), vm::block, vm::notSpam)
+                    EventRow(
+                        event,
+                        event.sourceId?.let(state.sourceNames::get),
+                        event.number?.let(state.status::get),
+                        vm::block,
+                        vm::notSpam,
+                    )
                     HorizontalDivider()
                 }
             }
