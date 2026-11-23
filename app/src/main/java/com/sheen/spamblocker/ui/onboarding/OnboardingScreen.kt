@@ -152,7 +152,8 @@ fun OnboardingScreen(onDone: () -> Unit, importOnly: Boolean = false, vm: Onboar
                 Title("A few permissions")
                 Body(
                     "• Call log: import calls you've already blocked, and let through numbers you called recently.\n" +
-                        "• Contacts: never block or suggest ranges that include your contacts.\n" +
+                        "• Contacts: never block or suggest ranges that include your contacts, and silence or reject " +
+                        "a contact you block (Android doesn't screen calls from contacts).\n" +
                         "• Notifications: spam warnings and \"Block this number?\" prompts.\n\n" +
                         "Each one is optional; the related feature just turns off.",
                 )
@@ -163,6 +164,7 @@ fun OnboardingScreen(onDone: () -> Unit, importOnly: Boolean = false, vm: Onboar
                             arrayOf(
                                 Manifest.permission.READ_CALL_LOG,
                                 Manifest.permission.READ_CONTACTS,
+                                Manifest.permission.WRITE_CONTACTS,
                                 Manifest.permission.POST_NOTIFICATIONS,
                             ),
                         )

@@ -72,9 +72,9 @@ data class ScreeningDecision(
 }
 
 /**
- * The ordered pipeline from SPEC §5: the first matching stage wins. Contacts
- * and the allowlist come first, then the user's own exact blocks, then the
- * safety-net allows, then the other block stages. Pure Kotlin; the I/O lookups are started
+ * The ordered pipeline from SPEC §5: the first matching stage wins. The
+ * allowlist comes first, then the user's own exact blocks, then contacts, then
+ * the safety-net allows, then the other block stages. Pure Kotlin; the I/O lookups are started
  * concurrently up front so the slowest one, not their sum, bounds the latency.
  */
 class DecisionEngine(
@@ -96,16 +96,19 @@ class DecisionEngine(
                 async { recentEvents.screenedSince(number, call.timestampMillis - minutes * MINUTE_MILLIS) }
             }
 
-            // 1–2: the user's allow rules.
-            if (isContact.await()) return@coroutineScope allow(Stage.CONTACT)
+            // 1: the manual allowlist.
             index.allowMatch(number)?.let {
                 return@coroutineScope ScreeningDecision(Decision.ALLOW, Stage.ALLOWLIST, ruleId = it.ruleId)
             }
 
-            // 3: the user's exact block list beats the safety nets below. USER_BLOCK
-            // is the earliest block stage, so the best match is one if any is.
+            // 2: the user's exact block list beats contacts and the safety nets
+            // below. USER_BLOCK is the earliest block stage, so the best match is
+            // one if any is.
             val blockMatch = index.blockMatch(number)
             if (blockMatch?.stage == Stage.USER_BLOCK) return@coroutineScope blockMatch.toDecision()
+
+            // 3: saved contacts.
+            if (isContact.await()) return@coroutineScope allow(Stage.CONTACT)
 
             // 4–6: safety-net allows.
             if (settings.trai160Allow && indianNsn != null && TraiSeries.isTransactional(indianNsn)) {

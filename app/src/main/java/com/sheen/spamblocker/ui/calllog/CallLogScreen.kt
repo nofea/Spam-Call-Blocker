@@ -143,6 +143,11 @@ private fun CallRow(row: CallLogRow, onBlock: (String, Action) -> Unit, onNotSpa
         }
     }
     if (blocking && number != null) {
-        BlockDialog(number, (row.status as? NumberStatus.Blocked)?.action ?: Action.REJECT, onBlock = { onBlock(number, it); blocking = false }, onDismiss = { blocking = false })
+        BlockDialog(
+            number,
+            (row.status as? NumberStatus.Blocked)?.action ?: Action.REJECT,
+            isContact = row.call.cachedName != null,
+            onBlock = { onBlock(number, it); blocking = false }, onDismiss = { blocking = false },
+        )
     }
 }

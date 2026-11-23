@@ -102,13 +102,16 @@ There are no prebuilt releases yet, so you build the APK yourself (see
 build** on the phone you actually use. A debug build lets anyone with adb access read
 the app's database, which holds your call history.
 
-1. Create a signing key once, and keep it outside this repo with a backup:
+1. Create a signing key once, and keep it outside this repo with a backup. `keytool`
+   doesn't create missing directories, so create the folder first:
    ```sh
+   mkdir -p ~/keys && chmod 700 ~/keys
    keytool -genkeypair -v -keystore ~/keys/spamblocker.jks -alias spamblocker \
      -keyalg RSA -keysize 4096 -validity 10000
    ```
 2. Tell Gradle where it is in `~/.gradle/gradle.properties` (never in the project's
-   `gradle.properties`). Use an absolute path:
+   `gradle.properties`). Use an absolute path that matches where the key actually is,
+   and the passwords you gave `keytool`:
    ```properties
    spamblocker.keystore=/home/<you>/keys/spamblocker.jks
    spamblocker.keystorePassword=<store password>
@@ -150,9 +153,13 @@ The phone and computer must be on the same network.
    adb connect <ip>:<port>          # the port shown on the Wireless debugging screen
    adb devices
    ```
-   If the phone is listed twice, add `-s <ip>:<port>` to adb commands, or
-   `export ANDROID_SERIAL=<ip>:<port>`.
-3. `adb install -r app/build/outputs/apk/release/app-release.apk`
+   The phone is often listed twice: once for your `adb connect` and once as
+   `adb-<serial>._adb-tls-connect._tcp`, which Android finds on its own. Both are the same
+   phone. If you don't choose one, adb fails with `more than one device/emulator`.
+3. Install, choosing the connection with `-s` (or `export ANDROID_SERIAL=<ip>:<port>` once):
+   ```sh
+   adb -s <ip>:<port> install -r app/build/outputs/apk/release/app-release.apk
+   ```
 
 Wireless debugging turns off after a restart or a network change. Turn it back on and run
 `adb connect` again. You don't need to pair again.

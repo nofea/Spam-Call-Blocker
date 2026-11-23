@@ -11,6 +11,9 @@ object Permissions {
 
     fun canReadContacts(context: Context) = granted(context, Manifest.permission.READ_CONTACTS)
 
+    /** Needed to apply blocks to saved contacts, which the screening service never sees (SPEC §5). */
+    fun canWriteContacts(context: Context) = granted(context, Manifest.permission.WRITE_CONTACTS)
+
     fun canNotify(context: Context) = granted(context, Manifest.permission.POST_NOTIFICATIONS)
 
     fun holdsScreeningRole(context: Context): Boolean =

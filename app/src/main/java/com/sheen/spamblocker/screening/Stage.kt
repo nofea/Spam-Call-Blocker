@@ -7,9 +7,9 @@ import com.sheen.spamblocker.rules.Action
  * priority order: when several block rules match, the earliest stage wins.
  */
 enum class Stage(val label: String) {
-    CONTACT("Saved contact"),
     ALLOWLIST("Allowlist"),
     USER_BLOCK("Block list"),
+    CONTACT("Saved contact"),
     TRAI_160("TRAI 160-series"),
     RECENT_OUTGOING("Recently called"),
     REPEAT_CALLER("Repeat caller"),
