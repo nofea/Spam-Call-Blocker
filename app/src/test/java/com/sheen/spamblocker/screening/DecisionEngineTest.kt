@@ -25,6 +25,7 @@ class DecisionEngineTest {
     private val blockedButCalled = "+919000000008"
     private val blockedRepeatCaller = "+919000000009"
     private val blockedContact = "+919000000010"
+    private val silencedContact = "+919000000011"
     private val unknown = "+919000000099"
 
     private val index = RuleIndex.build(
@@ -42,6 +43,7 @@ class DecisionEngineTest {
             entry(blockedRepeatCaller, Stage.USER_BLOCK, Action.SILENCE, ruleId = 6),
             entry("+911600123457", Stage.USER_BLOCK, Action.REJECT, ruleId = 7),
             entry(blockedContact, Stage.USER_BLOCK, Action.REJECT, ruleId = 8),
+            entry(silencedContact, Stage.USER_BLOCK, Action.SILENCE, ruleId = 9),
             // A remote list and a user block both match: the user block's action wins.
             entry(blockedButCalled, Stage.REMOTE_LIST, Action.SILENCE, sourceId = 10),
         ),
@@ -52,7 +54,7 @@ class DecisionEngineTest {
         IndexEntry(compiler.compile(pattern), RuleMatch(stage, action, ruleId, sourceId))
 
     private val engine = DecisionEngine(
-        contacts = { it == contact || it == blockedContact },
+        contacts = { it in listOf(contact, blockedContact, silencedContact) },
         recentOutgoing = { number, since ->
             (number in listOf(calledYesterday, blockedButCalled) && since <= now - DAY) ||
                 (number == calledLastMonth && since <= now - 30 * DAY)
@@ -74,21 +76,22 @@ class DecisionEngineTest {
     )
 
     private val cases = listOf(
-        Case("1 contact, even when listed", contact, ScreeningDecision.allow(Stage.CONTACT)),
-        Case("2 allowlist beats block list", allowlisted, ScreeningDecision(Decision.ALLOW, Stage.ALLOWLIST, ruleId = 20)),
-        Case("1 contact beats user block", blockedContact, ScreeningDecision.allow(Stage.CONTACT)),
-        Case("3 user block", userBlocked, ScreeningDecision(Decision.REJECT, Stage.USER_BLOCK, ruleId = 1)),
+        Case("1 allowlist beats block list", allowlisted, ScreeningDecision(Decision.ALLOW, Stage.ALLOWLIST, ruleId = 20)),
+        Case("2 user block", userBlocked, ScreeningDecision(Decision.REJECT, Stage.USER_BLOCK, ruleId = 1)),
+        Case("2 user block beats contact", blockedContact, ScreeningDecision(Decision.REJECT, Stage.USER_BLOCK, ruleId = 8)),
+        Case("2 user silence beats contact", silencedContact, ScreeningDecision(Decision.SILENCE, Stage.USER_BLOCK, ruleId = 9)),
+        Case("3 contact beats other block lists", contact, ScreeningDecision.allow(Stage.CONTACT)),
         Case(
-            "3 user block beats recent outgoing and remote list",
+            "2 user block beats recent outgoing and remote list",
             blockedButCalled,
             ScreeningDecision(Decision.REJECT, Stage.USER_BLOCK, ruleId = 5),
         ),
         Case(
-            "3 user block beats repeat caller",
+            "2 user block beats repeat caller",
             blockedRepeatCaller,
             ScreeningDecision(Decision.SILENCE, Stage.USER_BLOCK, ruleId = 6),
         ),
-        Case("3 user block beats TRAI 160", "1600123457", ScreeningDecision(Decision.REJECT, Stage.USER_BLOCK, ruleId = 7)),
+        Case("2 user block beats TRAI 160", "1600123457", ScreeningDecision(Decision.REJECT, Stage.USER_BLOCK, ruleId = 7)),
         Case("4 TRAI 160", "1600123456", ScreeningDecision.allow(Stage.TRAI_160)),
         Case(
             "4 TRAI 160 off falls through",

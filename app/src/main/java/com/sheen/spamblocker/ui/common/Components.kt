@@ -1,6 +1,9 @@
 package com.sheen.spamblocker.ui.common
 
+import android.Manifest
 import android.text.format.DateUtils
+import androidx.activity.compose.rememberLauncherForActivityResult
+import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -22,9 +25,11 @@ import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
+import com.sheen.spamblocker.calllog.Permissions
 import com.sheen.spamblocker.data.NumberStatus
 import com.sheen.spamblocker.rules.Action
 import com.sheen.spamblocker.screening.Decision
@@ -70,15 +75,60 @@ fun ActionChoiceRow(selected: Action, onSelect: (Action) -> Unit, modifier: Modi
     }
 }
 
-/** The action chooser behind every "Block" button (SPEC §7). */
+/**
+ * The action chooser behind every "Block" button (SPEC §7). Calls from saved
+ * contacts never reach the screening service, so for an [isContact] number the
+ * block is written to the contact, and contact access is requested first
+ * (SPEC §5).
+ */
 @Composable
-fun BlockDialog(number: String, initial: Action = Action.REJECT, onBlock: (Action) -> Unit, onDismiss: () -> Unit) {
+fun BlockDialog(
+    number: String,
+    initial: Action = Action.REJECT,
+    isContact: Boolean = false,
+    onBlock: (Action) -> Unit,
+    onDismiss: () -> Unit,
+) {
+    val context = LocalContext.current
     var action by remember { mutableStateOf(initial) }
+    var accessDenied by remember { mutableStateOf(false) }
+    val contactAccess = rememberLauncherForActivityResult(ActivityResultContracts.RequestMultiplePermissions()) { result ->
+        // Block either way: the rule still applies if the number stops being a contact.
+        if (result.values.all { it }) onBlock(action) else accessDenied = true
+    }
+    val canWrite = Permissions.canReadContacts(context) && Permissions.canWriteContacts(context)
     AlertDialog(
         onDismissRequest = onDismiss,
         title = { Text("Block $number") },
-        text = { ActionChoiceRow(action, { action = it }) },
-        confirmButton = { TextButton(onClick = { onBlock(action) }) { Text("Block") } },
+        text = {
+            Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                ActionChoiceRow(action, { action = it })
+                if (isContact) {
+                    val note = when {
+                        accessDenied || !canWrite && action != Action.WARN ->
+                            "This is a saved contact. Android doesn't screen calls from contacts, so Silence and " +
+                                "Reject only work with contact access, which lets the app set this contact's " +
+                                "ringtone to None or send it to voicemail."
+                        action == Action.WARN -> "This is a saved contact. Android doesn't screen calls from contacts, so Warn has no effect."
+                        else -> null
+                    }
+                    note?.let {
+                        Text(it, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                    }
+                }
+            }
+        },
+        confirmButton = {
+            TextButton(
+                onClick = {
+                    if (isContact && !canWrite && !accessDenied && action != Action.WARN) {
+                        contactAccess.launch(arrayOf(Manifest.permission.READ_CONTACTS, Manifest.permission.WRITE_CONTACTS))
+                    } else {
+                        onBlock(action)
+                    }
+                },
+            ) { Text("Block") }
+        },
         dismissButton = { TextButton(onClick = onDismiss) { Text("Cancel") } },
     )
 }

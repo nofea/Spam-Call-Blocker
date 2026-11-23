@@ -66,6 +66,7 @@ Each matching rule or source has one configurable action:
 | Call screening role | Screen incoming calls |
 | `READ_CALL_LOG` | Import blocked calls, learn from history, check recent outgoing calls, detect repeat callers |
 | `READ_CONTACTS` | Contacts allow rule; exclude contacts from derived prefixes |
+| `WRITE_CONTACTS` | Apply the user's exact blocks to saved contacts (ringtone "None" or send to voicemail), since contact calls never reach the screening service (§5) |
 | `POST_NOTIFICATIONS` | Spam warnings, block notifications, "Block this number?" prompts |
 | `INTERNET`, `ACCESS_NETWORK_STATE` | Download remote lists only |
 
@@ -92,13 +93,13 @@ Any permission the user denies degrades its feature gracefully. For example, wit
 
 ## 5. Decision pipeline
 
-Evaluation runs in order, and the **first match wins**. Contacts and the allowlist come first, then the user's own exact block list, then the safety-net allows, then every other block rule. A number the user explicitly blocked stays blocked even if they called it back or it calls twice in a row; to let it through, they mark it **Not spam** (§7) or save it as a contact.
+Evaluation runs in order, and the **first match wins**. The allowlist comes first, then the user's own exact block list, then contacts, then the safety-net allows, then every other block rule. A number the user explicitly blocked stays blocked even if it's a saved contact, they called it back, or it calls twice in a row; to let it through, they mark it **Not spam** (§7).
 
 | # | Stage | Rule | Default |
 |---|---|---|---|
-| 1 | Allow | Saved contact | on |
-| 2 | Allow | Manual allowlist (exact or prefix) | on |
-| 3 | Block | User exact block list (Block button and first-run import) | Reject |
+| 1 | Allow | Manual allowlist (exact or prefix) | on |
+| 2 | Block | User exact block list (Block button and first-run import) | Reject |
+| 3 | Allow | Saved contact | on |
 | 4 | Allow | TRAI 160-series | on |
 | 5 | Allow | User called this number within the last **N days** | on, N = 7 |
 | 6 | Allow | **Repeat caller**: the same number already called within **M minutes** (this is the second or later call) | on, M = 5 |
@@ -112,6 +113,7 @@ Evaluation runs in order, and the **first match wins**. Contacts and the allowli
 
 Notes:
 
+- **Saved contacts never reach the screening service.** Telecom only binds a `ROLE_CALL_SCREENING` app that isn't the default dialer for callers outside the user's contacts. So an exact block on a contact's number is also written to the contact itself through `calllog/ContactRingWriter`: Silence sets its ringtone to "None" (empty `CUSTOM_RINGTONE`), Reject sets `SEND_TO_VOICEMAIL`, and Warn has no contact equivalent, so it writes nothing. This needs `WRITE_CONTACTS`; the Block dialog asks for it when the number is a contact. Rules are written again at every app start, so a number saved as a contact after it was blocked is covered too. Not spam, deleting the rule, or disabling it clears these fields (a ringtone is only reset if it's the silent one). Stage 2 above still applies if the app ever handles such a call.
 - **Repeat caller** uses the app's own `CallEvent` history, not the call log, so it stays fast. It also counts calls the app rejected or silenced earlier.
 - **Hidden callers** skip stages 1–10, since there's no number to match, and go straight to stage 11.
 - When several block rules match one number, the earliest stage wins. Within a stage, the more specific pattern (more literal digits) wins, so an exact number beats a prefix.
@@ -161,8 +163,8 @@ A suggestion **never takes effect without the user's approval**. Dismissed prefi
 
 - **First-run import.** After onboarding, the app reads every `CallLog.Calls.TYPE == BLOCKED_TYPE` entry. It shows them as a checklist with everything checked by default, and adds the confirmed numbers to the user block list (origin `IMPORT`). Calls the app itself rejected are also logged as blocked; those are left out, so re-running the import doesn't copy list or TRAI matches into the user block list.
 - **Call log screen.** Lists recent incoming, missed, rejected, and blocked calls, each with a badge for the app's decision (if any). The badge is the decision that call got and never changes, so each row also shows the number's current exact rule ("Now blocked: Reject", "Now on allowlist"); the History screen does the same. Actions per number:
-  - **Block**: opens an action chooser and adds the number to the exact block list.
-  - **Not spam**: adds the number to the allowlist and removes any exact block for it.
+  - **Block**: opens an action chooser and adds the number to the exact block list. For a saved contact it also sets the contact's ringtone to "None" (Silence) or send-to-voicemail (Reject); see §5.
+  - **Not spam**: adds the number to the allowlist and removes any exact block for it, clearing what Block wrote to a contact.
 - **Post-call prompt (optional, default on).** After a call ends from an unknown number that the app allowed, the app posts a notification: "Block <number>?" with **Block** and **Not spam** actions. Turning this off in Settings stops the prompts.
   - **Detection:** a `ContentObserver` on `CallLog.Calls.CONTENT_URI`. It runs only while the app's process is alive. As a fallback, a WorkManager job checks the log every 15 min and doesn't prompt for calls older than 1 h.
 - **History reconciliation.** Every "Not spam" action on a number that was blocked by a remote list or a derived prefix is recorded as a `FalsePositive`, so the user can see which sources produce false positives. The Sources screen shows each source's false-positive count.
@@ -315,7 +317,7 @@ data class CallEvent(
 
 | Screen | Contents |
 |---|---|
-| **Onboarding** | Explanation → request the call screening role → `READ_CALL_LOG`, `READ_CONTACTS`, `POST_NOTIFICATIONS` → first-run blocked-call import (§7) |
+| **Onboarding** | Explanation → request the call screening role → `READ_CALL_LOG`, `READ_CONTACTS` + `WRITE_CONTACTS`, `POST_NOTIFICATIONS` → first-run blocked-call import (§7) |
 | **Home** | Protection status (a red banner if the role isn't held, with a fix button), today's and this week's blocked counts, the last 10 events |
 | **History** | Every `CallEvent` with its decision, matching stage or rule, and time. Can be filtered by decision. Each row has **Block** and **Not spam** actions. |
 | **Call log** | System call log entries with the app's decision badges, plus **Block** and **Not spam** (§7) |

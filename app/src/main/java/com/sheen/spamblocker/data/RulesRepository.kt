@@ -1,6 +1,7 @@
 package com.sheen.spamblocker.data
 
 import androidx.room.withTransaction
+import com.sheen.spamblocker.calllog.ContactRingWriter
 import com.sheen.spamblocker.rules.Action
 import com.sheen.spamblocker.rules.CompiledPattern
 import com.sheen.spamblocker.rules.InvalidPatternException
@@ -23,6 +24,7 @@ sealed interface NumberStatus {
 class RulesRepository @Inject constructor(
     private val db: SpamBlockerDatabase,
     private val compiler: WildcardCompiler,
+    private val contactWriter: ContactRingWriter,
 ) {
     private val blockRules = db.blockRules()
     private val allowRules = db.allowRules()
@@ -45,7 +47,11 @@ class RulesRepository @Inject constructor(
             }
         }
 
-    /** "Block" (SPEC §7): exact block, replacing any exact allow for the number. */
+    /**
+     * "Block" (SPEC §7): exact block, replacing any exact allow for the number.
+     * Calls from contacts never reach the screening service, so the block is
+     * also written to the number's contact, if any (SPEC §5).
+     */
     suspend fun blockNumber(e164: String, action: Action, origin: RuleOrigin = RuleOrigin.USER, note: String? = null) {
         db.withTransaction {
             allowRules.find(e164)?.let { allowRules.delete(it) }
@@ -61,6 +67,7 @@ class RulesRepository @Inject constructor(
                 )
             }
         }
+        contactWriter.apply(e164, action)
     }
 
     /**
@@ -86,6 +93,7 @@ class RulesRepository @Inject constructor(
                 )
             }
         }
+        contactWriter.clear(e164)
     }
 
     /** Adds a manual pattern rule (SPEC §6.1). Throws [InvalidPatternException]. */
@@ -108,9 +116,29 @@ class RulesRepository @Inject constructor(
         allowRules.insert(AllowRule(pattern = pattern.text, type = pattern.ruleType, note = note, createdAt = now()))
     }
 
-    suspend fun updateBlockRule(rule: BlockRule) = blockRules.update(rule)
+    suspend fun updateBlockRule(rule: BlockRule) {
+        blockRules.update(rule)
+        syncContact(rule)
+    }
 
-    suspend fun deleteBlockRule(rule: BlockRule) = blockRules.delete(rule)
+    suspend fun deleteBlockRule(rule: BlockRule) {
+        blockRules.delete(rule)
+        if (rule.type == RuleType.EXACT) contactWriter.clear(rule.pattern)
+    }
+
+    /**
+     * Writes every exact block rule to its contact (SPEC §5). Run at startup and
+     * after contact access is granted, so rules made earlier, or numbers saved
+     * as contacts later, take effect.
+     */
+    suspend fun syncContacts() {
+        blockRules.getAll().forEach { syncContact(it) }
+    }
+
+    private suspend fun syncContact(rule: BlockRule) {
+        if (rule.type != RuleType.EXACT) return
+        if (rule.enabled) contactWriter.apply(rule.pattern, rule.action) else contactWriter.clear(rule.pattern)
+    }
 
     suspend fun deleteAllowRule(rule: AllowRule) = allowRules.delete(rule)
 
@@ -133,16 +161,19 @@ class RulesRepository @Inject constructor(
     }
 
     /** First-run import (SPEC §7): adds numbers the system dialer blocked, skipping known ones. */
-    suspend fun importBlocked(numbers: Collection<String>, action: Action = Action.REJECT): Int =
-        db.withTransaction {
-            val fresh = numbers.distinct().filter { blockRules.findExact(it) == null }
-            blockRules.insertAll(
-                fresh.map {
-                    BlockRule(pattern = it, type = RuleType.EXACT, action = action, origin = RuleOrigin.IMPORT, createdAt = now())
-                },
-            )
-            fresh.size
+    suspend fun importBlocked(numbers: Collection<String>, action: Action = Action.REJECT): Int {
+        val fresh = db.withTransaction {
+            numbers.distinct().filter { blockRules.findExact(it) == null }.also { fresh ->
+                blockRules.insertAll(
+                    fresh.map {
+                        BlockRule(pattern = it, type = RuleType.EXACT, action = action, origin = RuleOrigin.IMPORT, createdAt = now())
+                    },
+                )
+            }
         }
+        fresh.forEach { contactWriter.apply(it, action) }
+        return fresh.size
+    }
 
     private fun now() = System.currentTimeMillis()
 }

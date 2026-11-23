@@ -6,6 +6,7 @@ import androidx.work.Configuration
 import com.sheen.spamblocker.calllog.PostCallPrompter
 import com.sheen.spamblocker.data.BlockRuleDao
 import com.sheen.spamblocker.data.RuleIndexHolder
+import com.sheen.spamblocker.data.RulesRepository
 import com.sheen.spamblocker.data.SettingsRepository
 import com.sheen.spamblocker.di.AppScope
 import com.sheen.spamblocker.notify.Notifier
@@ -29,6 +30,7 @@ class SpamBlockerApp : Application(), Configuration.Provider {
     @Inject lateinit var notifier: Notifier
     @Inject lateinit var settings: SettingsRepository
     @Inject lateinit var blockRules: BlockRuleDao
+    @Inject lateinit var rules: RulesRepository
     @Inject lateinit var suggestions: SuggestionRefresher
     @Inject lateinit var scheduler: WorkScheduler
     @Inject lateinit var postCallPrompter: PostCallPrompter
@@ -52,6 +54,9 @@ class SpamBlockerApp : Application(), Configuration.Provider {
                 .distinctUntilChanged()
                 .collect { (interval, unmetered) -> scheduler.scheduleListRefresh(interval, unmetered) }
         }
+        // SPEC §5: contacts never reach the screening service, so write the
+        // exact block rules onto them (covers numbers saved as contacts later).
+        scope.launch { rules.syncContacts() }
         // SPEC §6.2: re-derive suggestions after block-list changes (debounced).
         scope.launch {
             blockRules.observeAll()
